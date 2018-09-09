@@ -121,8 +121,8 @@ class SplitFS(LoggingMixIn, Operations):
         return st
 
     def open(self, path, flags):
-        if flags & (os.O_RDWR | os.O_WRONLY):
-            raise FuseOSError(errno.EROFS)
+        #if flags & (os.O_RDWR | os.O_WRONLY):
+        #    raise FuseOSError(errno.EROFS)
 
         # Just checking the path is valid
         self.get_n(path)
@@ -167,6 +167,8 @@ if __name__ == "__main__":
             sys.argv[3] if len(sys.argv) == 4 else DEFAULT_CHUNK_SIZE,
         ),
         sys.argv[2],
+        fsname='splitfs',
+        ro=True,
         foreground=True,
     )
 
