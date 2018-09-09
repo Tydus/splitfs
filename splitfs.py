@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import stat
+import errno
 import logging
 import os.path
 import threading
@@ -33,6 +34,7 @@ def refresh_stat(func):
         return func(self, *args, **kwargs)
     return wrapped
 
+
 class SplitFS(LoggingMixIn, Operations):
     def __init__(self, src, chunk_size):
         self.src_fd = os.open(src, os.O_RDONLY)
@@ -44,7 +46,11 @@ class SplitFS(LoggingMixIn, Operations):
 
         print "self.chunk_size = %d" % self.chunk_size
 
-    @refresh_stat
+    def return_rofs(self, *args, **kwargs):
+        raise FuseOSError(errno.EROFS)
+
+    utimens = return_rofs
+
     def get_piece_range(self, n):
         src_size = self.src_stat['st_size']
         start = n * self.chunk_size
@@ -53,21 +59,40 @@ class SplitFS(LoggingMixIn, Operations):
         size = end - start + 1
         return (start, end, size)
 
+    def get_n(self, path):
+        fn = os.path.basename(path)
+        l = fn.rsplit('.', 1)
+        if len(l) != 2 or l[0] != self.src_name or l[1] == '-0':
+            raise FuseOSError(errno.ENOENT)
+        try:
+            n = int(l[1])
+        except ValueError:
+            raise FuseOSError(errno.ENOENT)
+
+        npieces = -(-self.src_stat['st_size'] / self.chunk_size) # safe ceiling div
+        if n >= npieces or n < 0:
+            raise FuseOSError(errno.ENOENT)
+        return n
+
     @refresh_stat
     def getattr(self, path, fh=None):
-        #import pdb; pdb.set_trace()
         st = self.src_stat.copy()
 
         if path[-1] == '/':
-            st['st_size'] = 4096
             st['st_nlink'] = 2
-            st['st_mode'] = (stat.S_IFDIR | 0o777)
+            st['st_size'] = 4096
+            st['st_mode'] = (stat.S_IFDIR | (st['st_mode'] & 0o777 | 0o111))
         else:
-            n = int(path.rsplit('.', 2)[-1])
+            n = self.get_n(path)
             _, _, size = self.get_piece_range(n)
             st['st_size'] = size
 
         return st
+
+    def open(self, path, flags):
+        if flags & (os.O_RDWR | os.O_WRONLY):
+            raise FuseOSError(errno.EROFS)
+        return 0
 
     @refresh_stat
     def readdir(self, path, fh):
@@ -78,14 +103,15 @@ class SplitFS(LoggingMixIn, Operations):
         return ['.', '..'] + ['%s.%d' % (self.src_name, i) for i in xrange(npieces)]
 
     @refresh_stat
-    def read(self, path, size, offset):
-        n = int(path.rsplit('.', 2)[-1])
+    def read(self, path, size, offset, fh):
+        n = self.get_n(path)
 
         start, end, piece_size = self.get_piece_range(n)
-        assert offset + size <= piece_size
+        #assert offset + size <= piece_size
+        print "read: [start, end]"
 
         with self.src_lock:
-            os.lseek(self.src_fd, start + offset)
+            os.lseek(self.src_fd, start + offset, 0)
             return os.read(self.src_fd, size)
 
 if __name__ == "__main__":
