@@ -67,7 +67,8 @@ def refresh_stat(func):
     return wrapped
 
 
-class SplitFS(LoggingMixIn, Operations):
+#class SplitFS(LoggingMixIn, Operations):
+class SplitFS(Operations):
     def __init__(self, src, chunk_size):
         self.src_stat = None
         self.src_path = src
@@ -137,8 +138,6 @@ class SplitFS(LoggingMixIn, Operations):
 
     @refresh_stat
     def readdir(self, path, fh):
-        print "readdir: path = " + path
-        
         npieces = -(-self.src_stat['st_size'] / self.chunk_size) # safe ceiling div
 
         return ['.', '..'] + ['%s.%d' % (self.src_name, i) for i in xrange(npieces)]
@@ -159,7 +158,7 @@ if __name__ == "__main__":
         print "Usage: %s <source> <mountpoint> [chunksize]" % sys.argv[0]
         exit(-1)
 
-    logging.basicConfig(level=logging.DEBUG)
+    #logging.basicConfig(level=logging.DEBUG)
 
     FUSE(
         SplitFS(
@@ -170,5 +169,6 @@ if __name__ == "__main__":
         fsname='splitfs',
         ro=True,
         foreground=True,
+        nothreads=True,
     )
 
