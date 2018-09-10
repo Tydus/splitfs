@@ -58,8 +58,7 @@ def refresh_stat(func):
             raise FuseOSError(errno.ENOENT)
 
         self.src_stat = dict((key, getattr(st, key)) for key in (
-            'st_atime', 'st_ctime', 'st_mtime',
-            'st_uid', 'st_gid', 'st_nlink',
+            'st_atime', 'st_ctime', 'st_mtime', 'st_uid', 'st_gid', 'st_nlink',
         ))
         self.src_stat['st_size'] = size
         self.src_stat['st_mode'] = mode
@@ -73,10 +72,8 @@ class SplitFS(Operations):
         self.src_stat = None
         self.src_path = src
         self.src_name = os.path.basename(src)
-
         self.chunk_size = parseSize(chunk_size)
-
-        print "self.chunk_size = %d" % self.chunk_size
+        self.print_i = 0 
 
     def get_piece_range(self, n):
         src_size = self.src_stat['st_size']
@@ -115,16 +112,12 @@ class SplitFS(Operations):
             st['st_size'] = 4096
             st['st_mode'] = (stat.S_IFDIR | stat.S_IMODE(st['st_mode']) | 0o111)
         else:
-            n = self.get_n(path)
-            _, _, size = self.get_piece_range(n)
+            _, _, size = self.get_piece_range(self.get_n(path))
             st['st_size'] = size
 
         return st
 
     def open(self, path, flags):
-        #if flags & (os.O_RDWR | os.O_WRONLY):
-        #    raise FuseOSError(errno.EROFS)
-
         # Just checking the path is valid
         self.get_n(path)
 
@@ -139,16 +132,14 @@ class SplitFS(Operations):
     @refresh_stat
     def readdir(self, path, fh):
         npieces = -(-self.src_stat['st_size'] / self.chunk_size) # safe ceiling div
-
         return ['.', '..'] + ['%s.%d' % (self.src_name, i) for i in xrange(npieces)]
 
     @refresh_stat
     def read(self, path, size, offset, fh):
-        n = self.get_n(path)
-
-        start, end, piece_size = self.get_piece_range(n)
-        #assert offset + size <= piece_size
-        #print "read: fh=%d size=%d offset=%d => [%s, %s]" % (fh, size, offset, start, end)
+        start, end, piece_size = self.get_piece_range(self.get_n(path))
+        self.print_i += 1
+        if self.print_i % 100 == 0:
+            print "read: fh=%d size=%d offset=%d => [%s, %s]" % (fh, size, offset, start, end)
 
         os.lseek(fh, start + offset, 0)
         return os.read(fh, size)
@@ -159,7 +150,6 @@ if __name__ == "__main__":
         exit(-1)
 
     #logging.basicConfig(level=logging.DEBUG)
-
     FUSE(
         SplitFS(
             sys.argv[1],
@@ -167,8 +157,6 @@ if __name__ == "__main__":
         ),
         sys.argv[2],
         fsname='splitfs',
-        ro=True,
-        foreground=True,
-        nothreads=True,
+        ro=True, foreground=True, nothreads=True,
     )
 
